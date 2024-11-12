@@ -1,25 +1,59 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
+from sqlalchemy import create_engine, text
 
-# 创建随机数据
-def create_random_df():
-    np.random.seed(42)
-    dates = pd.date_range('2023-01-01', '2023-12-31', freq='D')
-    df = pd.DataFrame({
-        'Date': dates,
-        'Value1': np.random.randn(len(dates)),
-        'Value2': np.random.randint(0, 100, len(dates)),
-        'Category': np.random.choice(['A', 'B', 'C'], len(dates))
-    })
-    return df
+# 获取数据库连接配置
+username = st.secrets["DB_USERNAME"]
+password = st.secrets["DB_PASSWORD"]
+url = st.secrets["DB_URL"]
+sql1 = st.secrets["STAT_WO_METHOD_SQL"]
+sql2 = st.secrets["DETAIL_SQL"]
+list1 = st.secrets["OPERATION_LIST"]
 
-# 创建页面
-st.title('Random DataFrame Demo')
+# 创建数据库连接
+connection_string = f"mysql+pymysql://{username}:{password}@{url}"
+engine = create_engine(connection_string)
 
-# 显示数据
-df = create_random_df()
-st.dataframe(df)
+# 页面标题
+st.title('TiDB Query Demo')
 
-# 添加一个简单的图表
-st.line_chart(df[['Value1', 'Value2']])
+# 用户输入
+execution_id = st.text_input('execution_id')
+
+if execution_id:
+    # 转换为字符串
+    execution_id = str(execution_id)
+    
+    # 查询SQL1
+    try:
+        with engine.connect() as conn:
+            df1 = pd.read_sql(
+                text(sql1),
+                conn,
+                params={"execution_id": execution_id}
+            )
+        st.subheader("Query 1 Results")
+        st.dataframe(df1)
+        
+        # 下拉选择框
+        selected_value = st.selectbox("Select a value", list1)
+        
+        if selected_value:
+            # 查询SQL2
+            try:
+                with engine.connect() as conn:
+                    df2 = pd.read_sql(
+                        text(sql2),
+                        conn,
+                        params={
+                            "execution_id": execution_id,
+                            "operation_id": selected_value
+                        }
+                    )
+                st.subheader("Query 2 Results")
+                st.dataframe(df2)
+            except Exception as e:
+                st.error(f"Error executing SQL2: {str(e)}")
+                
+    except Exception as e:
+        st.error(f"Error executing SQL1: {str(e)}")
