@@ -2,58 +2,69 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import create_engine, text
 
-# 获取数据库连接配置
+
 username = st.secrets["DB_USERNAME"]
 password = st.secrets["DB_PASSWORD"]
 url = st.secrets["DB_URL"]
-sql1 = st.secrets["STAT_WO_METHOD_SQL"]
-sql2 = st.secrets["DETAIL_SQL"]
-list1 = st.secrets["OPERATION_LIST"]
 
-# 创建数据库连接
+show_executions_sql = st.secrets["SHOW_EXECUTIONS_SQL"]
+stat_wo_method_in_execution_sql = st.secrets["STAT_WO_METHOD_IN_EXECUTION_SQL"]
+detail_per_operation_in_execution_sql = st.secrets["DETAIL_PER_OPERATION_IN_EXECUTION_SQL"]
+list_operations_in_execution_sql = st.secrets["LIST_OPERATIONS_IN_EXECUTION_SQL"]
+
+
 connection_string = f"mysql+pymysql://{username}:{password}@{url}"
 engine = create_engine(connection_string)
 
-# 页面标题
-st.title('TiDB Query Demo')
 
-# 用户输入
-execution_id = st.text_input('execution_id')
+st.title('Dedicated API Test Report')
+
+st.subheader('Recent 20 Execution IDs')
+
+try:
+    with engine.connect() as conn:
+        df_executions = pd.read_sql_query(text(show_executions_sql), conn)
+        st.dataframe(df_executions)
+except Exception as e:
+    st.error(f"Error executing SQL: {str(e)}")
+
+
+
+execution_id = st.text_input(
+    label='**Execution ID**',
+    placeholder='Please input execution_id',
+    label_visibility='visible',
+)
 
 if execution_id:
-    # 转换为字符串
     execution_id = str(execution_id)
     
-    # 查询SQL1
     try:
         with engine.connect() as conn:
-            df1 = pd.read_sql(
-                text(sql1),
+            stat_query = text(stat_wo_method_in_execution_sql).bindparams(execution_id=execution_id)
+            stat_df = pd.read_sql_query(
+                stat_query,
                 conn,
-                params={"execution_id": execution_id}
             )
-        st.subheader("Query 1 Results")
-        st.dataframe(df1)
+            list_operations_query = text(list_operations_in_execution_sql).bindparams(execution_id=execution_id)
+            list_operations_df = pd.read_sql_query(
+                list_operations_query,
+                conn,
+            )
+            st.subheader("Statistics (without INVALID_METHOD)")
+            st.dataframe(stat_df)
+
+            st.subheader("Details")
         
-        # 下拉选择框
-        selected_value = st.selectbox("Select a value", list1)
-        
-        if selected_value:
-            # 查询SQL2
-            try:
-                with engine.connect() as conn:
-                    df2 = pd.read_sql(
-                        text(sql2),
-                        conn,
-                        params={
-                            "execution_id": execution_id,
-                            "operation_id": selected_value
-                        }
-                    )
-                st.subheader("Query 2 Results")
-                st.dataframe(df2)
-            except Exception as e:
-                st.error(f"Error executing SQL2: {str(e)}")
-                
+            for i, operation in list_operations_df.iterrows():
+                detail_query = text(detail_per_operation_in_execution_sql).bindparams(execution_id=execution_id, operation_id=operation['operation'])
+                detail_df = pd.read_sql_query(
+                    detail_query,
+                    conn,
+                )
+                if not detail_df.empty:
+                    st.markdown(f"##### {operation['operation']}")
+                    st.dataframe(detail_df)
+
     except Exception as e:
-        st.error(f"Error executing SQL1: {str(e)}")
+        st.error(f"Error executing SQL: {str(e)}")
